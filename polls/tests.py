@@ -1,4 +1,4 @@
-from django.test import TestCase
+from django.test import TestCase, SimpleTestCase, TransactionTestCase
 
 # Create your tests here.
 
@@ -7,37 +7,50 @@ import datetime
 from django.utils import timezone
 from django.urls import reverse
 
-from .models import Question
+from .models import Question, Choice
 
 
-class QuestionModelTests(TestCase):
+from django.contrib.staticfiles.testing import StaticLiveServerTestCase
+from selenium.webdriver.common.by import By
+from selenium.webdriver.firefox.webdriver import WebDriver
+
+
+class SimpleTestExample(SimpleTestCase): 
+      def test_basic_addition(self): 
+          self.assertEqual(1 + 1, 2)
+
+
+class QuestionModelTests(TransactionTestCase):
+
+    def setUp(self):
+        Question.objects.create(question_text="Future", pub_date=timezone.now() + datetime.timedelta(days=30))
+        Question.objects.create(question_text="New", pub_date=timezone.now() - datetime.timedelta(hours=23, minutes=59, seconds=59))
+        Question.objects.create(question_text="Old", pub_date=timezone.now() - datetime.timedelta(days=1, seconds=1))
+    
     def test_was_published_recently_with_future_question(self):
         """
         was_published_recently() returns False for questions whose pub_date
         is in the future.
         """
-        time = timezone.now() + datetime.timedelta(days=30)
-        future_question = Question(pub_date=time)
+        future_question = Question.objects.get(question_text="Future")
         self.assertIs(future_question.was_published_recently(), False)
-
-    def test_was_published_recently_with_old_question(self):
-        """
-        was_published_recently() returns False for questions whose pub_date
-        is older than 1 day.
-        """
-        time = timezone.now() - datetime.timedelta(days=1, seconds=1)
-        old_question = Question(pub_date=time)
-        self.assertIs(old_question.was_published_recently(), False)
-
 
     def test_was_published_recently_with_recent_question(self):
         """
         was_published_recently() returns True for questions whose pub_date
         is within the last day.
         """
-        time = timezone.now() - datetime.timedelta(hours=23, minutes=59, seconds=59)
-        recent_question = Question(pub_date=time)
+        recent_question = Question.objects.get(question_text="New")
         self.assertIs(recent_question.was_published_recently(), True)
+
+    def test_was_published_recently_with_old_question(self):
+        """
+        was_published_recently() returns False for questions whose pub_date
+        is older than 1 day.
+        """
+        old_question = Question.objects.get(question_text="Old")
+        self.assertIs(old_question.was_published_recently(), False)
+
 
 def create_question(question_text, days):
     """
@@ -126,3 +139,30 @@ class QuestionDetailViewTests(TestCase):
         url = reverse("polls:detail", args=(past_question.id,))
         response = self.client.get(url)
         self.assertContains(response, past_question.question_text)
+
+
+class MySeleniumTests(StaticLiveServerTestCase):
+    def setUp(self):
+        future_question = Question.objects.create(question_text="Future", pub_date=timezone.now() + datetime.timedelta(days=30))
+        new_question = Question.objects.create(question_text="New", pub_date=timezone.now() - datetime.timedelta(hours=23, minutes=59, seconds=59))
+        old_question = Question.objects.create(question_text="Old", pub_date=timezone.now() - datetime.timedelta(days=1, seconds=1))
+
+        new_question.choice_set.create(choice_text="Yes")
+        new_question.choice_set.create(choice_text="No")
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.selenium = WebDriver()
+        cls.selenium.implicitly_wait(10)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.selenium.quit()
+        super().tearDownClass()
+
+    def test_login(self):
+        self.selenium.get(f"{self.live_server_url}/polls/")
+        self.selenium.find_element(By.NAME, "poll").click()
+        self.selenium.find_element(By.NAME, "choice").click()
+        self.selenium.find_element(By.NAME, "submit").click()
